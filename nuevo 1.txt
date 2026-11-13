@@ -1,0 +1,1039 @@
+const express = require("express");
+const fs = require("fs");
+const path = require("path");
+const { chromium } = require("playwright");
+
+const app = express();
+const PORT = 3000;
+
+const DB_FILE = path.join(__dirname, "db.json");
+
+app.use(express.json());
+
+function leerDB() {
+    if (!fs.existsSync(DB_FILE)) {
+        guardarDB({
+            estudiantes: [],
+            notas: []
+        });
+    }
+
+    return JSON.parse(fs.readFileSync(DB_FILE, "utf8"));
+}
+
+function guardarDB(datos) {
+    fs.writeFileSync(
+        DB_FILE,
+        JSON.stringify(datos, null, 2),
+        "utf8"
+    );
+}
+
+const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Sistema de Registro de Notas</title>
+
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    background: #f1f5f9;
+    color: #263449;
+}
+
+header {
+    background: #12345a;
+    color: white;
+    padding: 28px;
+}
+
+header h1 {
+    margin-bottom: 8px;
+}
+
+nav {
+    background: #1e5b91;
+    padding: 15px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+nav button {
+    background: transparent;
+    border: none;
+    color: white;
+    padding: 10px 15px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+nav button.activo,
+nav button:hover {
+    background: #12345a;
+    border-radius: 5px;
+}
+
+main {
+    max-width: 1100px;
+    margin: 30px auto;
+    padding: 18px;
+}
+
+.pagina {
+    display: none;
+}
+
+.pagina.activa {
+    display: block;
+}
+
+.panel,
+.tarjeta {
+    background: white;
+    padding: 25px;
+    border-radius: 10px;
+    margin-bottom: 22px;
+    box-shadow: 0 3px 12px #00000012;
+}
+
+h2 {
+    color: #12345a;
+    margin-bottom: 20px;
+}
+
+.tarjetas {
+    display: grid;
+    grid-template-columns: repeat(
+        auto-fit,
+        minmax(190px, 1fr)
+    );
+    gap: 20px;
+}
+
+.tarjeta {
+    border-top: 4px solid #1e5b91;
+    margin: 0;
+}
+
+.tarjeta h3 {
+    color: #1e5b91;
+    margin-bottom: 12px;
+}
+
+.numero {
+    font-size: 32px;
+    font-weight: bold;
+    color: #12345a;
+}
+
+.campo {
+    margin-bottom: 17px;
+}
+
+label {
+    display: block;
+    font-weight: bold;
+    margin-bottom: 7px;
+}
+
+input, select {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 15px;
+}
+
+.boton {
+    background: #1e5b91;
+    color: white;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.boton:hover {
+    background: #12345a;
+}
+
+.eliminar {
+    background: #b42318;
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.tabla {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+    min-width: 600px;
+}
+
+th, td {
+    padding: 13px;
+    text-align: left;
+    border-bottom: 1px solid #dce4ee;
+}
+
+th {
+    background: #12345a;
+    color: white;
+}
+
+.mensaje {
+    margin-top: 15px;
+    font-weight: bold;
+    min-height: 20px;
+}
+
+.acciones {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 25px;
+}
+
+footer {
+    background: #12345a;
+    color: white;
+    text-align: center;
+    padding: 22px;
+    margin-top: 50px;
+}
+
+@media(max-width: 600px) {
+    main {
+        padding: 10px;
+    }
+
+    .panel {
+        padding: 16px;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<header>
+    <h1>Sistema de Registro de Notas</h1>
+    <p>Plataforma de gestión académica de estudiantes</p>
+</header>
+
+<nav>
+    <button class="activo" data-pagina="inicio">Inicio</button>
+    <button data-pagina="estudiantes">Estudiantes</button>
+    <button data-pagina="calificaciones">Calificaciones</button>
+</nav>
+
+<main>
+
+<section id="inicio" class="pagina activa">
+
+    <div class="panel">
+        <h2>Panel principal</h2>
+        <p>Bienvenido al sistema de administración académica.</p>
+    </div>
+
+    <div class="tarjetas">
+
+        <article class="tarjeta">
+            <h3>Estudiantes</h3>
+            <div class="numero" id="totalEstudiantes">0</div>
+            <p>Estudiantes registrados</p>
+        </article>
+
+        <article class="tarjeta">
+            <h3>Calificaciones</h3>
+            <div class="numero" id="totalNotas">0</div>
+            <p>Notas registradas</p>
+        </article>
+
+        <article class="tarjeta">
+            <h3>Promedio general</h3>
+            <div class="numero" id="promedioGeneral">0.00</div>
+            <p>Promedio académico</p>
+        </article>
+
+    </div>
+
+    <div class="acciones">
+        <button class="boton" data-ir="estudiantes">
+            Registrar estudiante
+        </button>
+
+        <button class="boton" data-ir="calificaciones">
+            Registrar calificación
+        </button>
+    </div>
+
+</section>
+
+<section id="estudiantes" class="pagina">
+
+    <div class="panel">
+
+        <h2>Registro de estudiantes</h2>
+
+        <form id="formEstudiante">
+
+            <div class="campo">
+                <label for="matricula">Matrícula:</label>
+                <input id="matricula" required>
+            </div>
+
+            <div class="campo">
+                <label for="nombre">Nombre completo:</label>
+                <input id="nombre" required>
+            </div>
+
+            <div class="campo">
+                <label for="correo">Correo electrónico:</label>
+                <input id="correo" type="email" required>
+            </div>
+
+            <div class="campo">
+                <label for="carrera">Carrera:</label>
+                <input id="carrera" required
+                    value="Licenciatura en Informática">
+            </div>
+
+            <button class="boton" type="submit">
+                Guardar estudiante
+            </button>
+
+            <p class="mensaje" id="mensajeEstudiante"
+               role="status" aria-live="polite"></p>
+
+        </form>
+
+    </div>
+
+    <div class="panel">
+
+        <h2>Lista de estudiantes</h2>
+
+        <div class="tabla">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Matrícula</th>
+                        <th>Nombre</th>
+                        <th>Correo</th>
+                        <th>Carrera</th>
+                        <th>Acción</th>
+                    </tr>
+                </thead>
+
+                <tbody id="listaEstudiantes"></tbody>
+            </table>
+        </div>
+
+    </div>
+
+</section>
+
+<section id="calificaciones" class="pagina">
+
+    <div class="panel">
+
+        <h2>Registro de calificaciones</h2>
+
+        <form id="formNota">
+
+            <div class="campo">
+                <label for="estudiante">Estudiante:</label>
+                <select id="estudiante" required>
+                    <option value="">Seleccione un estudiante</option>
+                </select>
+            </div>
+
+            <div class="campo">
+                <label for="asignatura">Asignatura:</label>
+                <select id="asignatura" required>
+                    <option value="">Seleccione una asignatura</option>
+                    <option value="Programación">Programación</option>
+                    <option value="Base de Datos">Base de Datos</option>
+                    <option value="Desarrollo Web">Desarrollo Web</option>
+                </select>
+            </div>
+
+            <div class="campo">
+                <label for="nota">Calificación (0-100):</label>
+                <input id="nota" type="number"
+                    min="0" max="100" step="0.01" required>
+            </div>
+
+            <button class="boton" type="submit">
+                Guardar calificación
+            </button>
+
+            <p class="mensaje" id="mensajeNota"
+               role="status" aria-live="polite"></p>
+
+        </form>
+
+    </div>
+
+    <div class="panel">
+
+        <h2>Lista de calificaciones</h2>
+
+        <div class="tabla">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Estudiante</th>
+                        <th>Asignatura</th>
+                        <th>Nota</th>
+                        <th>Estado</th>
+                        <th>Acción</th>
+                    </tr>
+                </thead>
+
+                <tbody id="listaNotas"></tbody>
+            </table>
+        </div>
+
+    </div>
+
+</section>
+
+</main>
+
+<footer>
+    Universidad Autónoma de Santo Domingo (UASD)<br>
+    Sistema de Registro de Notas - Proyecto académico
+</footer>
+
+<script>
+const $ = selector => document.querySelector(selector);
+
+let estudiantes = [];
+let notas = [];
+
+function mostrarPagina(id) {
+    document.querySelectorAll(".pagina").forEach(p => {
+        p.classList.toggle("activa", p.id === id);
+    });
+
+    document.querySelectorAll("nav button").forEach(b => {
+        b.classList.toggle("activo", b.dataset.pagina === id);
+    });
+}
+
+document.querySelectorAll("nav button").forEach(b => {
+    b.addEventListener("click", () => mostrarPagina(b.dataset.pagina));
+});
+
+document.querySelectorAll("[data-ir]").forEach(b => {
+    b.addEventListener("click", () => mostrarPagina(b.dataset.ir));
+});
+
+async function cargarTodo() {
+    const [r1, r2] = await Promise.all([
+        fetch("/api/estudiantes"),
+        fetch("/api/notas")
+    ]);
+
+    if (!r1.ok || !r2.ok) {
+        throw new Error("Error al consultar la API");
+    }
+
+    estudiantes = await r1.json();
+    notas = await r2.json();
+
+    renderizar();
+}
+
+function agregarCelda(fila, valor) {
+    const celda = document.createElement("td");
+    celda.textContent = valor;
+    fila.appendChild(celda);
+    return celda;
+}
+
+function renderizar() {
+    const tablaEstudiantes = $("#listaEstudiantes");
+    tablaEstudiantes.replaceChildren();
+
+    estudiantes.forEach(e => {
+        const fila = document.createElement("tr");
+
+        [e.matricula, e.nombre, e.correo, e.carrera]
+            .forEach(v => agregarCelda(fila, v));
+
+        const celda = agregarCelda(fila, "");
+        const boton = document.createElement("button");
+
+        boton.className = "eliminar";
+        boton.textContent = "Eliminar";
+        boton.type = "button";
+
+        boton.addEventListener("click", () => {
+            eliminarEstudiante(e.matricula);
+        });
+
+        celda.appendChild(boton);
+        tablaEstudiantes.appendChild(fila);
+    });
+
+    const selector = $("#estudiante");
+    const anterior = selector.value;
+
+    selector.replaceChildren();
+
+    const inicial = document.createElement("option");
+    inicial.value = "";
+    inicial.textContent = "Seleccione un estudiante";
+    selector.appendChild(inicial);
+
+    estudiantes.forEach(e => {
+        const opcion = document.createElement("option");
+        opcion.value = e.matricula;
+        opcion.textContent = e.nombre + " - " + e.matricula;
+        selector.appendChild(opcion);
+    });
+
+    if (estudiantes.some(e => e.matricula === anterior)) {
+        selector.value = anterior;
+    }
+
+    const tablaNotas = $("#listaNotas");
+    tablaNotas.replaceChildren();
+
+    notas.forEach(n => {
+        const fila = document.createElement("tr");
+
+        [n.nombreEstudiante, n.asignatura, n.nota, n.estado]
+            .forEach(v => agregarCelda(fila, v));
+
+        const celda = agregarCelda(fila, "");
+        const boton = document.createElement("button");
+
+        boton.className = "eliminar";
+        boton.textContent = "Eliminar";
+        boton.type = "button";
+
+        boton.addEventListener("click", () => eliminarNota(n.id));
+
+        celda.appendChild(boton);
+        tablaNotas.appendChild(fila);
+    });
+
+    $("#totalEstudiantes").textContent = estudiantes.length;
+    $("#totalNotas").textContent = notas.length;
+
+    const promedio = notas.length
+        ? notas.reduce((s, n) => s + n.nota, 0) / notas.length
+        : 0;
+
+    $("#promedioGeneral").textContent = promedio.toFixed(2);
+}
+
+$("#formEstudiante").addEventListener("submit", async evento => {
+    evento.preventDefault();
+
+    const datos = {
+        matricula: $("#matricula").value.trim(),
+        nombre: $("#nombre").value.trim(),
+        correo: $("#correo").value.trim(),
+        carrera: $("#carrera").value.trim()
+    };
+
+    const respuesta = await fetch("/api/estudiantes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(datos)
+    });
+
+    const resultado = await respuesta.json();
+
+    $("#mensajeEstudiante").textContent = respuesta.ok
+        ? "Estudiante registrado correctamente."
+        : resultado.error;
+
+    if (respuesta.ok) {
+        evento.target.reset();
+        $("#carrera").value = "Licenciatura en Informática";
+        await cargarTodo();
+    }
+});
+
+$("#formNota").addEventListener("submit", async evento => {
+    evento.preventDefault();
+
+    const datos = {
+        matricula: $("#estudiante").value,
+        asignatura: $("#asignatura").value,
+        nota: Number($("#nota").value)
+    };
+
+    const respuesta = await fetch("/api/notas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(datos)
+    });
+
+    const resultado = await respuesta.json();
+
+    $("#mensajeNota").textContent = respuesta.ok
+        ? "Calificación registrada correctamente."
+        : resultado.error;
+
+    if (respuesta.ok) {
+        evento.target.reset();
+        await cargarTodo();
+    }
+});
+
+async function eliminarEstudiante(matricula) {
+    if (!confirm("¿Desea eliminar este estudiante y sus notas?")) {
+        return;
+    }
+
+    const respuesta = await fetch(
+        "/api/estudiantes/" + encodeURIComponent(matricula),
+        { method: "DELETE" }
+    );
+
+    if (respuesta.ok) await cargarTodo();
+}
+
+async function eliminarNota(id) {
+    if (!confirm("¿Desea eliminar esta calificación?")) {
+        return;
+    }
+
+    const respuesta = await fetch(
+        "/api/notas/" + encodeURIComponent(id),
+        { method: "DELETE" }
+    );
+
+    if (respuesta.ok) await cargarTodo();
+}
+
+cargarTodo().catch(error => {
+    console.error(error);
+    alert("No se pudo conectar con el servidor.");
+});
+</script>
+
+</body>
+</html>`;
+
+app.get("/", (req, res) => {
+    res.type("html").send(html);
+});
+
+// Comprobar funcionamiento
+app.get("/api/salud", (req, res) => {
+    res.status(200).json({
+        mensaje: "API funcionando correctamente"
+    });
+});
+
+app.get("/api/estudiantes", (req, res) => {
+    const db = leerDB();
+    res.status(200).json(db.estudiantes);
+}
+app.get("/api/estudiantes/:matricula", (req, res) => {
+    const db = leerDB();
+
+    const estudiante = db.estudiantes.find(
+        e => e.matricula === req.params.matricula
+    );
+
+    if (!estudiante) {
+        return res.status(404).json({
+            error: "Estudiante no encontrado"
+        });
+    }
+
+    res.status(200).json(estudiante);
+});
+
+app.post("/api/estudiantes", (req, res) => {
+    const { matricula, nombre, correo, carrera } = req.body;
+
+    if (
+        ![matricula, nombre, correo, carrera].every(
+            v => typeof v === "string" && v.trim()
+        )
+    ) {
+        return res.status(400).json({
+            error: "Todos los campos son obligatorios"
+        });
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo.trim())) {
+        return res.status(400).json({
+            error: "El correo electrónico no es válido"
+        });
+    }
+
+    const db = leerDB();
+
+    if (db.estudiantes.some(e => e.matricula === matricula.trim())) {
+        return res.status(400).json({
+            error: "La matrícula ya está registrada"
+        });
+    }
+
+    const estudiante = {
+        matricula: matricula.trim(),
+        nombre: nombre.trim(),
+        correo: correo.trim(),
+        carrera: carrera.trim()
+    };
+
+    db.estudiantes.push(estudiante);
+    guardarDB(db);
+
+    res.status(201).json(estudiante);
+});
+
+app.delete("/api/estudiantes/:matricula", (req, res) => {
+    const db = leerDB();
+
+    const existe = db.estudiantes.some(
+        e => e.matricula === req.params.matricula
+    );
+
+    if (!existe) {
+        return res.status(404).json({
+            error: "Estudiante no encontrado"
+        });
+    }
+
+    db.estudiantes = db.estudiantes.filter(
+        e => e.matricula !== req.params.matricula
+    );
+
+    db.notas = db.notas.filter(
+        n => n.matricula !== req.params.matricula
+    );
+
+    guardarDB(db);
+
+    res.status(200).json({
+        mensaje: "Estudiante eliminado correctamente"
+    });
+});
+
+app.get("/api/notas", (req, res) => {
+    const db = leerDB();
+
+    const resultado = db.notas.map(n => {
+        const estudiante = db.estudiantes.find(
+            e => e.matricula === n.matricula
+        );
+
+        return {
+            ...n,
+            nombreEstudiante: estudiante
+                ? estudiante.nombre
+                : n.matricula,
+            estado: n.nota >= 70 ? "Aprobado" : "Reprobado"
+        };
+    });
+
+    res.status(200).json(resultado);
+});
+
+app.post("/api/notas", (req, res) => {
+    const { matricula, asignatura, nota } = req.body;
+
+    if (
+        typeof matricula !== "string" ||
+        !matricula.trim() ||
+        typeof asignatura !== "string" ||
+        !asignatura.trim() ||
+        typeof nota !== "number" ||
+        !Number.isFinite(nota)
+    ) {
+        return res.status(400).json({
+            error: "Los campos son obligatorios y la nota debe ser numérica"
+        });
+    }
+
+    if (nota < 0 || nota > 100) {
+        return res.status(400).json({
+            error: "La nota debe estar entre 0 y 100"
+        });
+    }
+
+    const db = leerDB();
+
+    const estudiante = db.estudiantes.find(
+        e => e.matricula === matricula
+    );
+
+    if (!estudiante) {
+        return res.status(404).json({
+            error: "El estudiante no existe"
+        });
+    }
+
+    if (db.notas.some(
+        n => n.matricula === matricula &&
+             n.asignatura === asignatura.trim()
+    )) {
+        return res.status(400).json({
+            error: "Ya existe una nota para esta asignatura"
+        });
+    }
+
+    const nuevaNota = {
+        id: Date.now().toString() + Math.random().toString(36).slice(2, 7),
+        matricula,
+        asignatura: asignatura.trim(),
+        nota
+    };
+
+    db.notas.push(nuevaNota);
+    guardarDB(db);
+
+    res.status(201).json(nuevaNota);
+});
+
+app.delete("/api/notas/:id", (req, res) => {
+    const db = leerDB();
+
+    if (!db.notas.some(n => n.id === req.params.id)) {
+        return res.status(404).json({
+            error: "Calificación no encontrada"
+        });
+    }
+
+    db.notas = db.notas.filter(n => n.id !== req.params.id);
+    guardarDB(db);
+
+    res.status(200).json({
+        mensaje: "Calificación eliminada correctamente"
+    });
+});
+
+
+app.use("/api", (req, res) => {
+    res.status(404).json({
+        error: "Ruta API no encontrada"
+    });
+});
+
+// ==========================================
+// 4. PRUEBAS AUTOMATIZADAS CON PLAYWRIGHT
+// ==========================================
+
+async function ejecutarPruebas() {
+    let browser;
+    let errores = 0;
+
+    function comprobar(condicion, mensaje) {
+        if (condicion) {
+            console.log("✔ APROBADA: " + mensaje);
+        } else {
+            errores++;
+            console.log("✘ FALLIDA: " + mensaje);
+        }
+    }
+
+    async function limpiarDatos() {
+        const db = {
+            estudiantes: [],
+            notas: []
+        };
+        guardarDB(db);
+    }
+
+    try {
+        console.log("\\n================================");
+        console.log(" PRUEBAS AUTOMATIZADAS");
+        console.log(" SISTEMA DE REGISTRO DE NOTAS");
+        console.log("================================\\n");
+
+        await limpiarDatos();
+
+        browser = await chromium.launch({
+            headless: true
+        });
+
+        const page = await browser.newPage();
+
+        await page.goto("http://127.0.0.1:" + PORT);
+
+        comprobar(
+            await page.locator("h1").innerText() ===
+                "Sistema de Registro de Notas",
+            "UI 1 - Mostrar la página principal"
+        );
+
+        await page.locator('[data-pagina="estudiantes"]').click();
+
+        await page.locator("#matricula").fill("TEST1001");
+        await page.locator("#nombre").fill("Ana Pérez");
+        await page.locator("#correo").fill("ana@example.com");
+        await page.locator("#carrera").fill("Informática");
+
+        await page.locator(
+            '#formEstudiante button[type="submit"]'
+        ).click();
+
+        await page.locator("#listaEstudiantes").getByText(
+            "Ana Pérez"
+        ).waitFor();
+
+        comprobar(
+            await page.locator("#listaEstudiantes").innerText()
+                .then(t => t.includes("Ana Pérez")),
+            "UI 2 - Registrar un estudiante"
+        );
+
+        // UI 3: REGISTRAR CALIFICACIÓN
+        await page.locator('[data-pagina="calificaciones"]').click();
+
+        await page.locator("#estudiante").selectOption("TEST1001");
+        await page.locator("#asignatura").selectOption("Programación");
+        await page.locator("#nota").fill("90");
+
+        await page.locator(
+            '#formNota button[type="submit"]'
+        ).click();
+
+        await page.locator("#listaNotas").getByText("90").waitFor();
+
+        comprobar(
+            await page.locator("#listaNotas").innerText()
+                .then(t => t.includes("90")),
+            "UI 3 - Registrar una calificación"
+        );
+
+        // UI 4: CALCULAR PROMEDIO
+        await page.locator('[data-pagina="inicio"]').click();
+
+        comprobar(
+            await page.locator("#promedioGeneral").innerText() === "90.00",
+            "UI 4 - Calcular promedio general"
+        );
+
+        await limpiarDatos();
+
+        let respuesta = await fetch(
+            "http://127.0.0.1:" + PORT + "/api/estudiantes",
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    matricula: "API1001",
+                    nombre: "Luis Gómez",
+                    correo: "luis@example.com",
+                    carrera: "Informática"
+                })
+            }
+        );
+
+        comprobar(
+            respuesta.status === 201,
+            "API 1 - Registrar estudiante con HTTP 201"
+        );
+
+        respuesta = await fetch(
+            "http://127.0.0.1:" + PORT + "/api/notas",
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    matricula: "API1001",
+                    asignatura: "Programación",
+                    nota: 120
+                })
+            }
+        );
+
+        comprobar(
+            respuesta.status === 400,
+            "API 2 - Rechazar nota superior a 100 con HTTP 400"
+        );
+
+        respuesta = await fetch(
+            "http://127.0.0.1:" + PORT +
+            "/api/estudiantes/NO-EXISTE"
+        );
+
+        comprobar(
+            respuesta.status === 404,
+            "API 3 - Buscar estudiante inexistente con HTTP 404"
+        );
+
+        respuesta = await fetch(
+            "http://127.0.0.1:" + PORT + "/api/estudiantes"
+        );
+
+        comprobar(
+            respuesta.status === 200,
+            "API 4 - Consultar estudiantes con HTTP 200"
+        );
+
+        await page.close();
+
+    } catch (error) {
+        errores++;
+        console.error("\\nERROR EN LAS PRUEBAS:", error.message);
+
+    } finally {
+        if (browser) {
+            await browser.close();
+        }
+
+        console.log("\\n================================");
+        console.log(" RESULTADO FINAL");
+        console.log("================================");
+
+        if (errores === 0) {
+            console.log("TODAS LAS PRUEBAS FUERON APROBADAS.");
+        } else {
+            console.log("PRUEBAS FALLIDAS: " + errores);
+        }
+
+        console.log("================================\\n");
+
+        if (errores > 0) {
+            process.exitCode = 1;
+        }
+    }
+}
+
+
+const servidor = app.listen(PORT, "127.0.0.1", async () => {
+    console.log("\\nSistema de Registro de Notas");
+    console.log("Servidor: http://localhost:" + PORT);
+
+    if (process.argv.includes("--test")) {
+        try {
+            await ejecutarPruebas();
+        } finally {
+            servidor.close();
+        }
+    } else {
+        console.log("Aplicación lista para utilizarse.");
+        console.log("Para ejecutar pruebas: node proyecto.js --test");
+    }
+});
